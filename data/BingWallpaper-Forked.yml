@@ -1,0 +1,103 @@
+# -----------------------------------------------------------------------------------------------------------------
+# Forked from https://github.com/RashidaKAKU/BingWallpapers
+# -----------------------------------------------------------------------------------------------------------------
+# 每日爬取 bing 壁纸
+# 
+# 利用 Github Actions，每日爬取 bing 壁纸，存储到 wallpaper 文件夹。
+# 
+# 运行方式
+# - 每天固定时间运行，Cron表达式 (UTC时间)。Github Actions 有排队机制，并不会准点运行
+# - 监听 .github 文件夹的修改。
+# - 手动触发工作流程。
+# 
+# 需要自定义的地方
+# - 创建: 仓库变量 SSH_PRIVATE_KEY，账号放公钥，仓库变量放私钥。   # Github 需要 OpenSSH 格式，长度2048。
+# - name: Commit and push changes 处 Your-Email@example.com    # 替换为您的 GitHub 邮箱地址。
+# - name: Commit and push changes 处 Your-GitHubUsername       # 替换为您的 GitHub 用户名。
+# - name: Commit and push changes 处 git push origin main      # 假设主分支为 main，请根据实际情况替换为您的主分支名称。
+# 
+# 在线小工具，不保证工具的安全性，介意误用。
+# OpenSSH-KEY 在线生成 https://uutool.cn/rsa-generate/
+# 
+# "github-actions[bot]"
+# "41898282+github-actions[bot]@users.noreply.github.com"
+# -----------------------------------------------------------------------------------------------------------------
+name: Get Bing Wallpaper
+
+on:
+  schedule:
+      # 每天16点02分运行（北京时间00点02分）
+    - cron: '02 16 * * *'
+      # 每天00点02分运行（北京时间08点02分）（避免第1次失败）
+    - cron: '02 00 * * *'
+      # 每天12点02分运行（北京时间20点02分）（避免第2次失败）
+    - cron: '02 12 * * *'
+  push:
+    paths:
+        # 监听 .github 文件夹的修改，自动触发工作流程
+      - '.github/**'
+  # 添加 workflow_dispatch 触发器，手动触发工作流程
+  workflow_dispatch:
+
+# 指定时区，避免因时差获取到错误日期
+env:
+  TZ: Asia/Shanghai
+
+jobs:
+  get_today_wallpaper:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+      with:
+        ssh-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+    - name: Install jq
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y jq
+
+    - name: Get Date
+      run: |
+        echo "YEAR=$(date +%Y)" >> $GITHUB_ENV
+        echo "MONTH=$(date +%m)" >> $GITHUB_ENV
+
+    - name: Create folders
+      run: |
+        mkdir -p "wallpaper/${{ env.YEAR }}/${{ env.MONTH }}"
+
+    - name: Download Today's Bing Wallpaper
+      run: |
+        IMAGE_URL=$(curl -sL "https://www.bing.com/HPImageArchive.aspx?format=js&idx=0&n=1&mkt=zh-CN" | jq -r '.images[0].urlbase')
+        FULL_IMAGE_URL="https://www.bing.com${IMAGE_URL}_1920x1080.jpg"
+        FILENAME=$(date +'%Y%m%d').jpg
+        echo "Downloading Bing Wallpaper: $FULL_IMAGE_URL"
+        wget -q -O "$FILENAME" "$FULL_IMAGE_URL"
+        mv "$FILENAME" "wallpaper/${{ env.YEAR }}/${{ env.MONTH }}/$FILENAME"
+
+    - name: Check for changes
+      id: check_changes
+      run: |
+        if git diff --quiet; then
+          echo "No changes to commit. Exiting workflow."
+          exit 0
+        fi
+
+    - name: Commit and push changes
+      if: steps.check_changes.outputs.result != 'true'
+      run: |
+        git config --local user.email "Your-Email@example.com"        # 替换为您的 GitHub 邮箱地址
+        git config --local user.name "Your-GitHubUsername"            # 替换为您的 GitHub 用户名
+        git add wallpaper/*
+        if git diff --cached --quiet; then
+          echo "No changes to commit. Exiting workflow."
+          exit 0
+        else
+          git commit -m "Add Bing Wallpaper"
+          # git commit -m "Add Bing Wallpaper $(date +'%Y/%m/%d')"
+          git push origin main                              # 假设主分支为 main，请根据实际情况替换为您的主分支名称
+        fi
